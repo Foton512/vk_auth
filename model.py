@@ -2,70 +2,27 @@
 
 from PyQt4.QtCore import QObject, pyqtSignal
 from threading import Thread
+import json
+import urllib
 from settings import *
-from random import randint, shuffle
-from time import sleep
 
 class Model(QObject):
-    infoReady = pyqtSignal(str)
-
-    def __init__(self, vkRequestProcessor):
-        QObject.__init__(self)
-        self.vkRequestProcessor = vkRequestProcessor
-
-    def getVkRequestProcessor(self):
-        return self.vkRequestProcessor
+    friendsReady = pyqtSignal(str)
 
     def setAccessToken(self, accessToken):
         self.accessToken = accessToken
 
-    def setNUsers(self, nUsers):
-        self.nUsers = nUsers
-
-    def setSampleSize(self, sampleSize):
-        self.sampleSize = sampleSize
-
-    def prepareSampleAsync(self):
-        thread = Thread(target = self.prepareSample)
+    # Запускает getFriends в отдельном потоке. Если все делать в одном потоке, интерфейс будет висеть
+    # Для запуска одного метода вряд ли будет заметно, но если делать что-то тяжелое, то еще как будет
+    def getFriendsAsync(self):
+        thread = Thread(target = self.getFriends)
         thread.setDaemon(True)
         thread.start()
 
-    def prepareSample(self):
-        i = 0
-        usedUserIds = set()
-        audios = set()
-        while i < self.nUsers:
-            while True:
-                userId = randint(1, maxUserId)
-                if userId not in usedUserIds:
-                    usedUserIds.add(userId)
-                    break
-
-            response = self.vkRequestProcessor.sendRequest(getAudioUrl.format(userId = userId))
-            if response == None or type(response) != list:
-                continue
-            nResponses = response[0]
-            if nResponses == 0:
-                continue
-            
-            for audio in response[1:]:
-                audios.add((audio["artist"], audio["title"], audio["genre"] if "genre" in audio else 0))
-            i += 1
-            self.infoReady.emit("Users processed: {nUsersCurrent}/{nUsers}".format(
-                                nUsersCurrent = i, nUsers = self.nUsers))
-
-            #sleep(0.3)
-
-        audiosList = list(audios)
-        shuffle(audiosList)
-        audiosList = audiosList[:self.sampleSize]
-
-        self.infoReady.emit("Writing sample file...")
-        sampleFile = open("sample.txt", "w")
-        for audio in audiosList:
-            sampleFile.write("{artist}\t{title}\t{genre}\n".format(
-                             artist = audio[0].encode("utf-8"),
-                             title = audio[1].encode("utf-8"),
-                             genre = audio[2]))
-        sampleFile.close()
-        self.infoReady.emit("Writing sample file completed")
+    def getFriends(self):
+        res = urllib.urlopen(getFriendsUrl.format(accessToken = self.accessToken)).read()
+        resDict = json.loads(res)
+        friendsStr = u"\n".join([u"{lastName} {firstName}".format(
+                     lastName = friend["last_name"], firstName = friend["first_name"])
+                     for friend in resDict["response"]])
+        self.friendsReady.emit(friendsStr)
